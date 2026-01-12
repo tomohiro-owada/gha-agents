@@ -2,27 +2,85 @@
 
 ## プロジェクト概要
 
-GitHub ActionsでOpenAI Agents SDKを使い、1min.aiのモデル（gpt-5-nano等）を実行するプロジェクト。
+pay4words.com上でエージェントを実行するプロジェクト。SPAからエージェントを実行し、結果を表示する。
 
 ## アーキテクチャ
 
 ```
-GitHub Actions
-    ↓ OpenAI形式リクエスト
-https://pay4words.com/v1/chat/completions
-    ↓ 1min.ai形式に変換
-https://api.1min.ai/api/features
+[SPA] https://pay4words.com/agents/
+    ↓ POST /api/agents/run
+[pay4words-api]
+    ↓ 1min.ai API
+[1min.ai] gpt-5-nano 等
     ↓ レスポンス
-pay4words.com（OpenAI形式に変換）
-    ↓
-GitHub Actions
+[pay4words-api]
+    ↓ GET /api/agents/status/{run_id}
+[SPA] 結果表示
 ```
+
+## SPA
+
+**URL:** https://pay4words.com/agents/
+
+**技術スタック:**
+- Vite + Vue 3 + TypeScript
+- shadcn-vue (UIコンポーネント)
+- Tailwind CSS
+
+**ビルド & デプロイ:**
+```bash
+cd spa
+npm run build
+scp -r dist/* root@pay4words.com:/root/pay4words-web/.output/public/agents/
+```
+
+## エージェント実行API
+
+### POST /api/agents/run
+
+エージェント実行を開始。
+
+```json
+{
+  "prompt": "Say hello in Japanese",
+  "model": "gpt-5-nano"
+}
+```
+
+レスポンス:
+```json
+{
+  "success": true,
+  "run_id": "uuid",
+  "message": "Agent execution started"
+}
+```
+
+### GET /api/agents/status/{run_id}
+
+実行状態を取得。
+
+```json
+{
+  "success": true,
+  "run_id": "uuid",
+  "status": "completed",  // queued, in_progress, completed, failure
+  "steps": [
+    {"name": "Initialize", "status": "completed"},
+    {"name": "Run Agent", "status": "completed"}
+  ],
+  "result": "こんにちは",
+  "error": null
+}
+```
+
+### GET /api/agents/runs
+
+実行履歴一覧。
 
 ## OpenAI互換エンドポイント
 
 **Base URL:** `https://pay4words.com/v1`
-
-### エンドポイント
 
 | パス | メソッド | 説明 |
 |------|----------|------|
@@ -37,70 +95,9 @@ GitHub Actions
 - `gemini-2.0-flash-lite` / `gemini-2.5-flash` - Gemini系
 - `deepseek-chat` / `deepseek-reasoner` - DeepSeek系
 
-## 使い方
-
-### OpenAI SDK
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="https://pay4words.com/v1",
-    api_key="dummy"  # 認証はサーバー側で処理
-)
-
-response = client.chat.completions.create(
-    model="gpt-5-nano",
-    messages=[{"role": "user", "content": "Hello"}]
-)
-print(response.choices[0].message.content)
-```
-
-### OpenAI Agents SDK
-
-```python
-from agents import Agent, Runner
-
-agent = Agent(
-    name="assistant",
-    model="gpt-5-nano",
-    instructions="You are a helpful assistant."
-)
-
-# base_urlの設定方法はAgents SDKのドキュメント参照
-```
-
-## GitHub Actions設定
-
-```yaml
-name: Run Agent
-on:
-  workflow_dispatch:
-
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install openai
-      - run: python agent.py
-        env:
-          OPENAI_BASE_URL: https://pay4words.com/v1
-          OPENAI_API_KEY: dummy
-```
-
-## 関連リポジトリ
-
-- [pay4words-api](https://github.com/tomohiro-owada/pay4words-api) - OpenAI互換ラッパーAPI
-
 ## 画像解析（未実装）
 
-1min.aiは画像解析に対応しているが、現在のpay4words.comエンドポイントは未対応。
-
-### 対応モデル
+1min.aiは画像解析に対応しているが、現在のエンドポイントは未対応。
 
 - `gpt-4o` - 画像解析対応
 - `gpt-5-nano` - **画像非対応**（テキストのみ）
@@ -115,44 +112,23 @@ jobs:
    → imageList に path を渡す
 ```
 
-### 実装例（1min.ai直接）
+## Self-hosted Runner（参考）
 
-```python
-import requests
+GitHub Actionsを多用する場合、Self-hosted Runnerで定額使い放題にできる。
 
-API_KEY = "your_1min_api_key"
-
-# Step 1: 画像アップロード
-with open("image.png", "rb") as f:
-    upload = requests.post(
-        "https://api.1min.ai/api/assets",
-        headers={"API-KEY": API_KEY},
-        files={"asset": f}
-    )
-file_path = upload.json()["fileContent"]["path"]
-
-# Step 2: 画像解析
-response = requests.post(
-    "https://api.1min.ai/api/features",
-    headers={"API-KEY": API_KEY, "Content-Type": "application/json"},
-    json={
-        "type": "CHAT_WITH_IMAGE",
-        "model": "gpt-4o",
-        "promptObject": {
-            "prompt": "What is in this image?",
-            "imageList": [file_path]
-        }
-    }
-)
-result = response.json()["aiRecord"]["aiRecordDetail"]["resultObject"][0]
+```bash
+# サーバーにrunnerをインストール
+mkdir -p actions-runner && cd actions-runner
+curl -o actions-runner-linux-x64.tar.gz -L https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+tar xzf ./actions-runner-linux-x64.tar.gz
+./config.sh --url https://github.com/OWNER/REPO --token TOKEN
+./svc.sh install && ./svc.sh start
 ```
 
-### TODO
+**メリット:**
+- GitHub-hosted Runnerの無料枠を気にしなくていい
+- 環境が保持されるので起動が速い（3-5秒）
 
-pay4words.comエンドポイントでOpenAI形式の画像メッセージ（base64/URL）を受け取り、1min.aiにアップロード→pathで渡す変換処理を実装する。
+## 関連リポジトリ
 
-## 注意事項
-
-- 認証はpay4words.comサーバー側の`ONEMIN_API_KEY`環境変数で行われる
-- レートリミットは1min.aiの制限に依存
-- トークン使用量は概算値（1min.aiが正確な値を返さない場合あり）
+- [pay4words-api](https://github.com/tomohiro-owada/pay4words-api) - OpenAI互換ラッパーAPI
