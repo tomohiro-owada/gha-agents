@@ -96,6 +96,61 @@ jobs:
 
 - [pay4words-api](https://github.com/tomohiro-owada/pay4words-api) - OpenAI互換ラッパーAPI
 
+## 画像解析（未実装）
+
+1min.aiは画像解析に対応しているが、現在のpay4words.comエンドポイントは未対応。
+
+### 対応モデル
+
+- `gpt-4o` - 画像解析対応
+- `gpt-5-nano` - **画像非対応**（テキストのみ）
+
+### 1min.aiでの画像解析手順
+
+```
+1. POST /api/assets で画像をアップロード
+   → fileContent.path を取得
+
+2. POST /api/features で CHAT_WITH_IMAGE
+   → imageList に path を渡す
+```
+
+### 実装例（1min.ai直接）
+
+```python
+import requests
+
+API_KEY = "your_1min_api_key"
+
+# Step 1: 画像アップロード
+with open("image.png", "rb") as f:
+    upload = requests.post(
+        "https://api.1min.ai/api/assets",
+        headers={"API-KEY": API_KEY},
+        files={"asset": f}
+    )
+file_path = upload.json()["fileContent"]["path"]
+
+# Step 2: 画像解析
+response = requests.post(
+    "https://api.1min.ai/api/features",
+    headers={"API-KEY": API_KEY, "Content-Type": "application/json"},
+    json={
+        "type": "CHAT_WITH_IMAGE",
+        "model": "gpt-4o",
+        "promptObject": {
+            "prompt": "What is in this image?",
+            "imageList": [file_path]
+        }
+    }
+)
+result = response.json()["aiRecord"]["aiRecordDetail"]["resultObject"][0]
+```
+
+### TODO
+
+pay4words.comエンドポイントでOpenAI形式の画像メッセージ（base64/URL）を受け取り、1min.aiにアップロード→pathで渡す変換処理を実装する。
+
 ## 注意事項
 
 - 認証はpay4words.comサーバー側の`ONEMIN_API_KEY`環境変数で行われる
